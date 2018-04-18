@@ -1,8 +1,7 @@
 package com.github.gdelafosse;
 
 import com.squareup.javapoet.*;
-import graphql.language.EnumTypeDefinition;
-import graphql.language.InterfaceTypeDefinition;
+import graphql.language.*;
 import graphql.schema.idl.TypeDefinitionRegistry;
 import org.apache.maven.plugin.logging.Log;
 
@@ -31,7 +30,7 @@ public class GraphQLJavaSourceGenerator {
 
         typeDefinitionRegistry.getTypes(EnumTypeDefinition.class).forEach(this::generateEnum);
         typeDefinitionRegistry.getTypes(InterfaceTypeDefinition.class).forEach(this::generateInterface);
-
+        typeDefinitionRegistry.getTypes(ObjectTypeDefinition.class).forEach(this::generateObject);
     }
 
     private File mkdir() throws IOException {
@@ -54,14 +53,26 @@ public class GraphQLJavaSourceGenerator {
     }
 
     private void generateInterface(InterfaceTypeDefinition interfaceTypeDefinition) {
-        TypeSpec.Builder builder = TypeSpec.classBuilder(interfaceTypeDefinition.getName())
-                .addModifiers(Modifier.PUBLIC, Modifier.ABSTRACT);
+        generateClass(interfaceTypeDefinition, interfaceTypeDefinition.getFieldDefinitions(), Modifier.PUBLIC, Modifier.ABSTRACT);
+    }
 
-        interfaceTypeDefinition.getFieldDefinitions().forEach(fieldDefinition -> {
-            builder.addField(FieldSpec.builder(ClassName.get(packageName, typeDefinitionRegistry.getType(fieldDefinition.getType()).get().getName()), fieldDefinition.getName(), Modifier.PUBLIC).build());
-        });
+    private void generateObject(ObjectTypeDefinition objectTypeDefinition) {
+        generateClass(objectTypeDefinition, objectTypeDefinition.getFieldDefinitions(), Modifier.PUBLIC);
+    }
+
+    private void generateClass(TypeDefinition<?> typeDefinition, List<FieldDefinition> fieldDefinitions,  Modifier ... modifiers) {
+        TypeSpec.Builder builder = TypeSpec.classBuilder(typeDefinition.getName())
+                .addModifiers(modifiers);
+
+        fieldDefinitions.stream()
+                .map(this::generateField)
+                .forEach(builder::addField);
 
         generateTypeSpec(builder.build());
+    }
+
+    private FieldSpec generateField(FieldDefinition fieldDefinition) {
+        return FieldSpec.builder(ClassName.get(packageName, typeDefinitionRegistry.getType(fieldDefinition.getType()).get().getName()), fieldDefinition.getName(), Modifier.PUBLIC).build();
     }
 
     private void generateTypeSpec(TypeSpec typeSpec) {
