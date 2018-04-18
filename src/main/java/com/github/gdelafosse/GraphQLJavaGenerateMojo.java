@@ -50,7 +50,7 @@ public class GraphQLJavaGenerateMojo extends AbstractMojo {
     }
 
     private void generateSources(TypeDefinitionRegistry typeDefinitionRegistry) throws IOException {
-        new GraphQLJavaSourceGenerator(getLog(), outputDirectory, packageName).generate(typeDefinitionRegistry);
+        new GraphQLJavaSourceGenerator(getLog(), outputDirectory, packageName, typeDefinitionRegistry).generate();
     }
 
     private TypeDefinitionRegistry parseSchemas(List<Path> schemas) {

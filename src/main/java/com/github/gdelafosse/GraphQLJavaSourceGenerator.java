@@ -1,8 +1,8 @@
 package com.github.gdelafosse;
 
-import com.squareup.javapoet.JavaFile;
-import com.squareup.javapoet.TypeSpec;
+import com.squareup.javapoet.*;
 import graphql.language.EnumTypeDefinition;
+import graphql.language.InterfaceTypeDefinition;
 import graphql.schema.idl.TypeDefinitionRegistry;
 import org.apache.maven.plugin.logging.Log;
 
@@ -16,19 +16,22 @@ public class GraphQLJavaSourceGenerator {
     private File outputDirectory;
     private String packageName;
     private File packageDirectory;
+    private TypeDefinitionRegistry typeDefinitionRegistry;
 
-
-    public GraphQLJavaSourceGenerator(Log log, File outputDirectory, String packageName) {
+    public GraphQLJavaSourceGenerator(Log log, File outputDirectory, String packageName, TypeDefinitionRegistry typeDefinitionRegistry) {
         this.log = log;
         this.outputDirectory = outputDirectory;
         this.packageName = packageName;
+        this.typeDefinitionRegistry = typeDefinitionRegistry;
     }
 
-    public void generate(TypeDefinitionRegistry typeDefinitionRegistry) throws IOException {
+    public void generate() throws IOException {
         this.packageDirectory = mkdir();
         log.debug(String.format("Generating sources in %s", packageDirectory));
 
-        generateEnums(typeDefinitionRegistry.getTypes(EnumTypeDefinition.class));
+        typeDefinitionRegistry.getTypes(EnumTypeDefinition.class).forEach(this::generateEnum);
+        typeDefinitionRegistry.getTypes(InterfaceTypeDefinition.class).forEach(this::generateInterface);
+
     }
 
     private File mkdir() throws IOException {
@@ -40,23 +43,32 @@ public class GraphQLJavaSourceGenerator {
         return packageDir;
     }
 
-    private void generateEnums(List<EnumTypeDefinition> enumTypes) {
-        enumTypes.forEach(enumType -> {
-            try {
-                TypeSpec.Builder builder = TypeSpec.enumBuilder(enumType.getName())
-                        .addModifiers(Modifier.PUBLIC);
-                enumType.getEnumValueDefinitions().forEach(enumValue -> {
-                    builder.addEnumConstant(enumValue.getName());
-                });
-
-                generateTypeSpec(builder.build());
-            } catch (IOException e) {
-                log.error(e);
-            }
+    private void generateEnum(EnumTypeDefinition enumTypeDefinition) {
+        TypeSpec.Builder builder = TypeSpec.enumBuilder(enumTypeDefinition.getName())
+                .addModifiers(Modifier.PUBLIC);
+        enumTypeDefinition.getEnumValueDefinitions().forEach(enumValue -> {
+            builder.addEnumConstant(enumValue.getName());
         });
+
+        generateTypeSpec(builder.build());
     }
 
-    private void generateTypeSpec(TypeSpec typeSpec) throws IOException {
-        JavaFile.builder(packageName, typeSpec).build().writeTo(outputDirectory);
+    private void generateInterface(InterfaceTypeDefinition interfaceTypeDefinition) {
+        TypeSpec.Builder builder = TypeSpec.classBuilder(interfaceTypeDefinition.getName())
+                .addModifiers(Modifier.PUBLIC, Modifier.ABSTRACT);
+
+        interfaceTypeDefinition.getFieldDefinitions().forEach(fieldDefinition -> {
+            builder.addField(FieldSpec.builder(ClassName.get(packageName, typeDefinitionRegistry.getType(fieldDefinition.getType()).get().getName()), fieldDefinition.getName(), Modifier.PUBLIC).build());
+        });
+
+        generateTypeSpec(builder.build());
+    }
+
+    private void generateTypeSpec(TypeSpec typeSpec) {
+        try {
+            JavaFile.builder(packageName, typeSpec).build().writeTo(outputDirectory);
+        } catch (IOException e) {
+            log.error(e);
+        }
     }
 }
