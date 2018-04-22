@@ -8,7 +8,9 @@ import org.apache.maven.plugin.logging.Log;
 import javax.lang.model.element.Modifier;
 import java.io.File;
 import java.io.IOException;
-import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class GraphQLJavaSourceGenerator {
     private Log log;
@@ -53,27 +55,61 @@ public class GraphQLJavaSourceGenerator {
     }
 
     private void generateInterface(InterfaceTypeDefinition interfaceTypeDefinition) {
-        generateClass(interfaceTypeDefinition, interfaceTypeDefinition.getFieldDefinitions(), Modifier.PUBLIC, Modifier.ABSTRACT);
-    }
+        TypeSpec.Builder builder = TypeSpec.interfaceBuilder(interfaceTypeDefinition.getName())
+                .addModifiers(Modifier.PUBLIC);
 
-    private void generateObject(ObjectTypeDefinition objectTypeDefinition) {
-        generateClass(objectTypeDefinition, objectTypeDefinition.getFieldDefinitions(), Modifier.PUBLIC);
-    }
-
-    private void generateClass(TypeDefinition<?> typeDefinition, List<FieldDefinition> fieldDefinitions,  Modifier ... modifiers) {
-        TypeSpec.Builder builder = TypeSpec.classBuilder(typeDefinition.getName())
-                .addModifiers(modifiers);
-
-        fieldDefinitions.stream()
-                .map(this::generateField)
-                .forEach(builder::addField);
+        interfaceTypeDefinition.getFieldDefinitions().stream()
+                .map(this::buildAccessor)
+                .forEach(builder::addMethod);
 
         generateTypeSpec(builder.build());
     }
 
-    private FieldSpec generateField(FieldDefinition fieldDefinition) {
-        return FieldSpec.builder(ClassName.get(packageName, typeDefinitionRegistry.getType(fieldDefinition.getType()).get().getName()), fieldDefinition.getName(), Modifier.PUBLIC).build();
+    private void generateObject(ObjectTypeDefinition objectTypeDefinition) {
+        TypeSpec.Builder builder = TypeSpec.classBuilder(objectTypeDefinition.getName())
+                .addModifiers(Modifier.PUBLIC);
+
+        Map<String, FieldDefinition> fields = objectTypeDefinition.getFieldDefinitions().stream()
+                .collect(Collectors.toMap(FieldDefinition::getName, Function.identity()));
+
+        objectTypeDefinition.getImplements().stream()
+                .peek(i -> {
+                    InterfaceTypeDefinition interfaceTypeDefinition = typeDefinitionRegistry.getType(i, InterfaceTypeDefinition.class).get();
+                    interfaceTypeDefinition.getFieldDefinitions()
+                            .stream()
+                            .peek(fieldDefinition -> { this.generateOverridenField(builder, fieldDefinition);})
+                            .forEach(fieldDefinition -> {fields.remove(fieldDefinition.getName());});
+                })
+                .map(this::getClassName)
+                .forEach(builder::addSuperinterface);
+
+        fields.values().forEach(fieldDefinition -> this.generateField(builder, fieldDefinition));
+
+        generateTypeSpec(builder.build());
     }
+
+    private void generateField(TypeSpec.Builder builder, FieldDefinition fieldDefinition) {
+        generateField(builder, fieldDefinition, false);
+    }
+
+    private void generateOverridenField(TypeSpec.Builder builder, FieldDefinition fieldDefinition) {
+        generateField(builder, fieldDefinition, true);
+    }
+
+    private void generateField(TypeSpec.Builder builder, FieldDefinition fieldDefinition, boolean override) {
+        builder.addField(FieldSpec.builder(getClassName(fieldDefinition), fieldDefinition.getName(), Modifier.PRIVATE).build());
+        MethodSpec.Builder methodSpecBuilder = MethodSpec.methodBuilder(fieldDefinition.getName())
+                .returns(getClassName(fieldDefinition))
+                .addModifiers(Modifier.PUBLIC)
+                .addCode(String.format("return %s;\n", fieldDefinition.getName()));
+
+        if (override) {
+            methodSpecBuilder.addAnnotation(Override.class);
+        }
+
+        builder.addMethod(methodSpecBuilder.build());
+    }
+
 
     private void generateTypeSpec(TypeSpec typeSpec) {
         try {
@@ -81,5 +117,20 @@ public class GraphQLJavaSourceGenerator {
         } catch (IOException e) {
             log.error(e);
         }
+    }
+
+    private MethodSpec buildAccessor(FieldDefinition fieldDefinition) {
+        return MethodSpec.methodBuilder(fieldDefinition.getName())
+                .returns(getClassName(fieldDefinition))
+                .addModifiers(Modifier.ABSTRACT, Modifier.PUBLIC)
+                .build();
+    }
+
+    private ClassName getClassName(FieldDefinition fieldDefinition) {
+        return getClassName(fieldDefinition.getType());
+    }
+
+    private ClassName getClassName(Type type) {
+        return ClassName.get(packageName, typeDefinitionRegistry.getType(type).get().getName());
     }
 }
