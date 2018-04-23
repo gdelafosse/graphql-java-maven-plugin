@@ -1,6 +1,7 @@
 package com.github.gdelafosse;
 
 import com.squareup.javapoet.*;
+import com.squareup.javapoet.TypeName;
 import graphql.language.*;
 import graphql.schema.idl.TypeDefinitionRegistry;
 import org.apache.maven.plugin.logging.Log;
@@ -8,7 +9,10 @@ import org.apache.maven.plugin.logging.Log;
 import javax.lang.model.element.Modifier;
 import java.io.File;
 import java.io.IOException;
+import java.io.StringWriter;
+import java.util.Collection;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -77,7 +81,7 @@ public class GraphQLJavaSourceGenerator {
                     InterfaceTypeDefinition interfaceTypeDefinition = typeDefinitionRegistry.getType(i, InterfaceTypeDefinition.class).get();
                     interfaceTypeDefinition.getFieldDefinitions()
                             .stream()
-                            .peek(fieldDefinition -> { this.generateOverridenField(builder, fieldDefinition);})
+                            .peek(fieldDefinition -> { this.generateOveridenField(builder, fieldDefinition);})
                             .forEach(fieldDefinition -> {fields.remove(fieldDefinition.getName());});
                 })
                 .map(this::getClassName)
@@ -92,22 +96,29 @@ public class GraphQLJavaSourceGenerator {
         generateField(builder, fieldDefinition, false);
     }
 
-    private void generateOverridenField(TypeSpec.Builder builder, FieldDefinition fieldDefinition) {
+    private void generateOveridenField(TypeSpec.Builder builder, FieldDefinition fieldDefinition) {
         generateField(builder, fieldDefinition, true);
     }
 
     private void generateField(TypeSpec.Builder builder, FieldDefinition fieldDefinition, boolean override) {
-        builder.addField(FieldSpec.builder(getClassName(fieldDefinition), fieldDefinition.getName(), Modifier.PRIVATE).build());
+        builder.addField(FieldSpec.builder(getTypeName(fieldDefinition.getType()), fieldDefinition.getName(), Modifier.PRIVATE).build());
         MethodSpec.Builder methodSpecBuilder = MethodSpec.methodBuilder(fieldDefinition.getName())
-                .returns(getClassName(fieldDefinition))
+                .returns(getTypeName(fieldDefinition.getType()))
                 .addModifiers(Modifier.PUBLIC)
-                .addCode(String.format("return %s;\n", fieldDefinition.getName()));
+                .addCode(buildAccessorCode(fieldDefinition));
 
         if (override) {
             methodSpecBuilder.addAnnotation(Override.class);
         }
 
         builder.addMethod(methodSpecBuilder.build());
+    }
+
+    private String buildAccessorCode(FieldDefinition fieldDefinition) {
+        StringWriter writer = new StringWriter();
+        writer.append(String.format("return %s;", fieldDefinition.getName()));
+        writer.append(System.lineSeparator());
+        return writer.toString();
     }
 
 
@@ -121,16 +132,23 @@ public class GraphQLJavaSourceGenerator {
 
     private MethodSpec buildAccessor(FieldDefinition fieldDefinition) {
         return MethodSpec.methodBuilder(fieldDefinition.getName())
-                .returns(getClassName(fieldDefinition))
+                .returns(getTypeName(fieldDefinition.getType()))
                 .addModifiers(Modifier.ABSTRACT, Modifier.PUBLIC)
                 .build();
     }
 
-    private ClassName getClassName(FieldDefinition fieldDefinition) {
-        return getClassName(fieldDefinition.getType());
+    private TypeName getClassName(Type type) {
+        return ClassName.get(packageName, typeDefinitionRegistry.getType(type).get().getName());
     }
 
-    private ClassName getClassName(Type type) {
-        return ClassName.get(packageName, typeDefinitionRegistry.getType(type).get().getName());
+    private TypeName getTypeName(Type type) {
+        TypeName className = getClassName(type);
+        if (type instanceof graphql.language.TypeName) {
+            return ParameterizedTypeName.get(ClassName.get(Optional.class), className);
+        } else if (type instanceof ListType) {
+            return ParameterizedTypeName.get(ClassName.get(Collection.class), className);
+        } else {
+            return className;
+        }
     }
 }

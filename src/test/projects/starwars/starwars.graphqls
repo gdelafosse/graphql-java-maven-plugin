@@ -1,17 +1,17 @@
-enum Episode @java(package:"org.distelli.starwars") {
+enum Episode {
     NEWHOPE,
     EMPIRE,
     JEDI
 }
 
-interface Character @java(package:"org.distelli.starwars") {
+interface Character {
     id: String!,
     name: String,
     friends: [Character],
     appearsIn: [Episode],
 }
 
-type Human implements Character @java(package:"org.distelli.starwars") {
+type Human implements Character {
     id: String!,
     name: String,
     friends: [Character],
@@ -19,7 +19,7 @@ type Human implements Character @java(package:"org.distelli.starwars") {
     homePlanet: String,
 }
 
-type Droid implements Character @java(package:"org.distelli.starwars") {
+type Droid implements Character {
     id: String!,
     name: String,
     friends: [Character],
